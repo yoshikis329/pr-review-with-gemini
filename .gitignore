@@ -1,3 +1,4 @@
 /.venv
-/agent/.env
+/pr_review_agent/.env
+/pr_review_agent/__pycache__
 /__pycache__/
