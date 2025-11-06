@@ -83,7 +83,7 @@ root_agent = LlmAgent(
     ```
     6. `pr_info` と `review_comments` を使って、`post_review_comments` ツールを呼び出し、GitHubにレビューコメントを投稿します。
     - `pr_info` から `owner`, `repo`, `pr_number` を取得します。
-    - `body`引数には "LGTM!" という文字列を渡します。
+    - `body`引数には "生成AIのコードレビュー結果です" という文字列を渡します。
     - `review_comments` を `comments` 引数として渡します。
     """,
     tools=[get_pull_request_diff, post_review_comments],
