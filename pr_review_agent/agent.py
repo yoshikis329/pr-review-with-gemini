@@ -52,24 +52,24 @@ def post_review_comments(owner: str, repo: str, pr_number: int, body: str, comme
 get_url_agent = LlmAgent(
     model="gemini-2.5-pro",
     name="get_url_agent",
-    instruction="""まず、ユーザーにレビュー対象のGitHubプルリクエストのURLを尋ねてください。
-    URLを受け取ったら、そのURLからオーナー名、リポジトリ名、PR番号を抽出して、以下の辞書形式で出力します。
-    - 例：
-        - 入力: https://github.com/owner1/repo1/pull/123
-        - 出力: {{"owner":  "owner1", "repo": "repo1", "pr_num": "123"}}
+    instruction="""
     """,
     output_key="pr_info",
 )
 
-get_review_comments_agent = LlmAgent(
+root_agent = LlmAgent(
     model="gemini-2.5-pro",
     name="get_review_comments_agent",
     instruction="""あなたは優秀なコードレビュアーです。
-    前のステップから渡された `pr_info` 辞書（例：{{"owner": "owner1", "repo": "repo1", "pr_num": "123"}}）を基にコードレビューを行います。
-
-    1.  `pr_info` 辞書から `owner`, `repo`, `pr_num` の値を取得し、`get_pull_request_diff` ツールを呼び出してPRの差分情報を取得します。
-    2.  取得した差分情報を分析し、コードの品質、可読性、ベストプラクティスなどの観点でレビューコメントを生成します。
-    3.  レビューコメントを以下の形式の辞書型リストとして出力します。
+    以下の手順に沿ってレビューを進めてください。
+    1. ユーザーにレビュー対象のGitHubプルリクエストのURLを尋ねてください。
+    2. URLを受け取ったら、そのURLからオーナー名、リポジトリ名、PR番号を抽出して、`pr_info`として辞書形式で出力します。
+    - 例：
+        - 入力: https://github.com/owner1/repo1/pull/123
+        - 出力: {{"owner":  "owner1", "repo": "repo1", "pr_num": "123"}}
+    3.  `pr_info` 辞書から `owner`, `repo`, `pr_num` の値を取得し、`get_pull_request_diff` ツールを呼び出してPRの差分情報を取得します。
+    4.  取得した差分情報を分析し、コードの品質、可読性、ベストプラクティスなどの観点でレビューコメントを生成します。
+    5.  レビューコメントを`review_comments`という名前で以下の形式の辞書型リストとして出力します。
     出力形式：
     
     ```json
@@ -81,31 +81,10 @@ get_review_comments_agent = LlmAgent(
         }}
     ]
     ```
-    """,
-    output_key="review_comments",
-    tools=[get_pull_request_diff],
-)
-
-post_review_comments_agent = LlmAgent(
-    model="gemini-2.5-pro",
-    name="post_review_comments_agent",
-    instruction="""前のステップから渡された `pr_info` と `review_comments` を使って、`post_review_comments` ツールを呼び出し、GitHubにレビューコメントを投稿します。
+    6. `pr_info` と `review_comments` を使って、`post_review_comments` ツールを呼び出し、GitHubにレビューコメントを投稿します。
     - `pr_info` から `owner`, `repo`, `pr_number` を取得します。
     - `body`引数には "LGTM!" という文字列を渡します。
     - `review_comments` を `comments` 引数として渡します。
     """,
-    tools=[post_review_comments],
-)
-
-
-root_agent = SequentialAgent(
-    name="pr_review_agent",
-    sub_agents=[
-        get_url_agent,
-        get_review_comments_agent,
-        post_review_comments_agent
-    ],
-    description=(
-        "汎用コメントが入力されたら、get_url_agentを呼び出してユーザからPRのURLが入力されると、get_review_comments_agentを呼び出し、レビューコメントを生成する。"
-    ),
+    tools=[get_pull_request_diff, post_review_comments],
 )
