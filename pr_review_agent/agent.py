@@ -1,11 +1,13 @@
-from google.adk.agents import LlmAgent
+from google.adk.agents import LlmAgent, SequentialAgent
+import requests
+import json
+import os
 
 
 def get_pull_request_diff(owner: str, repo: str, pr_number: int) -> str:
     """
     指定されたURLからPull Requestの差分情報を取得します。
     """
-    import requests
 
     url = f"https://patch-diff.githubusercontent.com/raw/{owner}/{repo}/pull/{pr_number}.diff"
 
@@ -17,14 +19,11 @@ def get_pull_request_diff(owner: str, repo: str, pr_number: int) -> str:
         return f"Error fetching pull request diff: {e}"
     
 
-def post_review_comments(owner: str, repo: str, pr_number: int, body: str, event: str = "COMMENT", comments: list = None) -> str:
+def post_review_comments(owner: str, repo: str, pr_number: int, body: str, comments: list[dict], event: str = "COMMENT") -> str:
     """
     指定されたPull Requestにレビューコメントを投稿します。
-    """
-    import requests
-    import json
-    import os
-    
+    """    
+
     # GitHub APIのURL
     url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
     
@@ -39,11 +38,10 @@ def post_review_comments(owner: str, repo: str, pr_number: int, body: str, event
         "body": body,
         "event": event
     }
-    
-    # コメントがある場合は追加
+
     if comments:
         data["comments"] = comments
-    
+        
     try:
         response = requests.post(url, headers=headers, data=json.dumps(data))
         response.raise_for_status()
@@ -51,31 +49,63 @@ def post_review_comments(owner: str, repo: str, pr_number: int, body: str, event
     except requests.exceptions.RequestException as e:
         return f"Error posting review comments: {e}"
 
-
-root_agent = LlmAgent(
+get_url_agent = LlmAgent(
     model="gemini-2.5-pro",
-    name="pr_review_agent",
-    instruction="""
-        あなたは優秀なPull Requestレビューアです。コードの品質、可読性、パフォーマンス、セキュリティ、ベストプラクティスに基づいてPRを評価し、建設的なフィードバックを提供します。
-        以下の手順でレビューをします。
-          1. PRのURLを受け取ります。
-          2. 受け取ったURLからリポジトリ作成者、リポジトリ名、PR番号を抽出します。
-            - 例：
-                - 入力：
-                    - URL: https://github.com/owner/repo/pull/123
-                - 抽出結果：
-                    - リポジトリ作成者: owner
-                    - リポジトリ名: repo
-                    - PR番号: 123
-
-          3. get_pull_request_diffツールを呼び出し、PRの詳細情報を取得します。
-          4. 取得したPRの差分情報を分析し、以下の観点でレビューを行います。
-              - コードの品質
-              - 可読性
-              - パフォーマンス
-              - セキュリティ
-              - ベストプラクティス
-        5. post_review_commentsツールを呼び出し、レビューコメントを投稿します。
+    name="get_url_agent",
+    instruction="""まず、ユーザーにレビュー対象のGitHubプルリクエストのURLを尋ねてください。
+    URLを受け取ったら、そのURLからオーナー名、リポジトリ名、PR番号を抽出して、以下の辞書形式で出力します。
+    - 例：
+        - 入力: https://github.com/owner1/repo1/pull/123
+        - 出力: {{"owner":  "owner1", "repo": "repo1", "pr_num": "123"}}
     """,
-    tools=[get_pull_request_diff, post_review_comments],
+    output_key="pr_info",
+)
+
+get_review_comments_agent = LlmAgent(
+    model="gemini-2.5-pro",
+    name="get_review_comments_agent",
+    instruction="""あなたは優秀なコードレビュアーです。
+    前のステップから渡された `pr_info` 辞書（例：{{"owner": "owner1", "repo": "repo1", "pr_num": "123"}}）を基にコードレビューを行います。
+
+    1.  `pr_info` 辞書から `owner`, `repo`, `pr_num` の値を取得し、`get_pull_request_diff` ツールを呼び出してPRの差分情報を取得します。
+    2.  取得した差分情報を分析し、コードの品質、可読性、ベストプラクティスなどの観点でレビューコメントを生成します。
+    3.  レビューコメントを以下の形式の辞書型リストとして出力します。
+    出力形式：
+    
+    ```json
+    [
+        {{
+            "path": "レビューコメントの対象ファイル名",
+            "position": "diff内での行番号",
+            "body": "レビュー内容"
+        }}
+    ]
+    ```
+    """,
+    output_key="review_comments",
+    tools=[get_pull_request_diff],
+)
+
+post_review_comments_agent = LlmAgent(
+    model="gemini-2.5-pro",
+    name="post_review_comments_agent",
+    instruction="""前のステップから渡された `pr_info` と `review_comments` を使って、`post_review_comments` ツールを呼び出し、GitHubにレビューコメントを投稿します。
+    - `pr_info` から `owner`, `repo`, `pr_number` を取得します。
+    - `body`引数には "LGTM!" という文字列を渡します。
+    - `review_comments` を `comments` 引数として渡します。
+    """,
+    tools=[post_review_comments],
+)
+
+
+root_agent = SequentialAgent(
+    name="pr_review_agent",
+    sub_agents=[
+        get_url_agent,
+        get_review_comments_agent,
+        post_review_comments_agent
+    ],
+    description=(
+        "汎用コメントが入力されたら、get_url_agentを呼び出してユーザからPRのURLが入力されると、get_review_comments_agentを呼び出し、レビューコメントを生成する。"
+    ),
 )
