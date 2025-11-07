@@ -1,4 +1,4 @@
-from google.adk.agents import LlmAgent, SequentialAgent
+from google.adk.agents import LlmAgent
 import requests
 import json
 import os
@@ -48,14 +48,6 @@ def post_review_comments(owner: str, repo: str, pr_number: int, body: str, comme
         return f"Successfully posted review to PR #{pr_number} in {owner}/{repo}"
     except requests.exceptions.RequestException as e:
         return f"Error posting review comments: {e}"
-
-get_url_agent = LlmAgent(
-    model="gemini-2.5-pro",
-    name="get_url_agent",
-    instruction="""
-    """,
-    output_key="pr_info",
-)
 
 root_agent = LlmAgent(
     model="gemini-2.5-pro",
